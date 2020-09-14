@@ -620,10 +620,27 @@ namespace Microsoft.DotNet.DarcLib
 
             if (Cache != null)
             {
-                return await Cache.GetOrCreateAsync((treeItem.Path, treeItem.Sha), async (entry) =>
-                {
-                    GitFile file = await GetGitItemImpl(path, treeItem, owner, repo);
+                int attempts = 0;
+                int maxAttempts = 5;
 
+                GitFile file = null;
+                while (true)
+                {
+                    try
+                    {
+                        file = await GetGitItemImpl(path, treeItem, owner, repo);
+                        break;
+                    }
+                    catch (AbuseException e) when (attempts < maxAttempts)
+                    {
+                        _logger.LogInformation($"Triggered GitHub abuse mechanism. Retrying after {e.RetryAfterSeconds.Value} seconds..");
+                        await Task.Delay(e.RetryAfterSeconds.Value * 1000);
+                        attempts++;
+                    }
+                }
+
+                return Cache.GetOrCreate((treeItem.Path, treeItem.Sha), (entry) =>
+                {
                     // Set the size of the entry. The size is not computed by the caching system
                     // (it has no way to do so). There are two bytes per each character in a string.
                     // We do not really need to worry about the size of the GitFile class itself,
